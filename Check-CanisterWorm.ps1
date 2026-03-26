@@ -46,7 +46,7 @@ $IssuesFound = $false
 $IsLinuxPS   = $PSVersionTable.OS -match 'Linux' -or (Test-Path variable:IsLinux -and $IsLinux)
 $IsMacOSPS   = $PSVersionTable.OS -match 'Darwin' -or (Test-Path variable:IsMacOS -and $IsMacOS)
 
-# Per-finding flags — used to print targeted remediation at the end
+# Per-finding flags  -  used to print targeted remediation at the end
 # ($script: prefix used inside ForEach-Object / pipeline scriptblocks to escape child scope)
 $FoundBackdoorService  = $false   # pgmon.service file or active systemd service
 $FoundPayloadFiles     = $false   # /tmp/pglog or /tmp/.pg_state
@@ -58,7 +58,7 @@ $FoundCompromisedPkgs  = $false   # known-bad hash or compromised package
 $FoundTrivy            = $false   # Trivy binary detected (was compromised by TeamPCP)
 $FoundNpmAudit         = $false   # critical npm audit finding
 
-# ─── Colour helpers ──────────────────────────────────────────────────────────
+# --- Colour helpers ----------------------------------------------------------
 function Write-Banner  { param([string]$Text) Write-Host "`n$Text" -ForegroundColor Cyan }
 function Write-Good    { param([string]$Text) Write-Host "[OK ] $Text" -ForegroundColor Green }
 function Write-Warn    { param([string]$Text) Write-Host "[WARN] $Text" -ForegroundColor Yellow }
@@ -72,18 +72,20 @@ function Write-Detail  { param([string]$Text) Write-Host "      $Text" -Foregrou
 Write-Host "========================================================" -ForegroundColor White
 Write-Host "   CanisterWorm Detection Script - PowerShell Edition"    -ForegroundColor White
 Write-Host "========================================================" -ForegroundColor White
-Write-Host "Scanning : $(( Resolve-Path $TargetDir -ErrorAction SilentlyContinue ).Path ?? $TargetDir)"
+$_resolved = (Resolve-Path $TargetDir -ErrorAction SilentlyContinue).Path
+if (-not $_resolved) { $_resolved = $TargetDir }
+Write-Host "Scanning : $_resolved"
 Write-Host "Date     : $(Get-Date)"
 Write-Host "========================================================" -ForegroundColor White
 
 # =============================================================================
-# SECTION 1 — Malicious file artefacts (filesystem IOCs)
+# SECTION 1  -  Malicious file artefacts (filesystem IOCs)
 # =============================================================================
 # CanisterWorm drops the following files on disk (Linux/macOS):
-#   /tmp/pglog                          — downloaded second-stage binary payload
-#   /tmp/.pg_state                      — tracks the last C2 URL (avoids re-download)
-#   ~/.config/systemd/user/pgmon.service — systemd persistence unit (Restart=always)
-#   ~/.local/share/pgmon/service.py      — Python C2 polling backdoor (~50 min interval)
+#   /tmp/pglog                           -  downloaded second-stage binary payload
+#   /tmp/.pg_state                       -  tracks the last C2 URL (avoids re-download)
+#   ~/.config/systemd/user/pgmon.service  -  systemd persistence unit (Restart=always)
+#   ~/.local/share/pgmon/service.py       -  Python C2 polling backdoor (~50 min interval)
 # All names deliberately mimic PostgreSQL tooling to avoid suspicion.
 # =============================================================================
 Write-Banner "[1/9] Checking malicious file artefacts (IOCs)..."
@@ -101,7 +103,7 @@ $FsIocs = @(
     }
     [pscustomobject]@{
         Path   = "$HOME/.config/systemd/user/pgmon.service"
-        Detail = "systemd user service with Restart=always — survives reboots without root."
+        Detail = "systemd user service with Restart=always  -  survives reboots without root."
         Remedy = "systemctl --user stop pgmon.service; systemctl --user disable pgmon.service`n      Remove-Item ~/.config/systemd/user/pgmon.service -Force`n      systemctl --user daemon-reload"
     }
     [pscustomobject]@{
@@ -158,10 +160,10 @@ if (Test-Path $NodeModulesPath) {
 }
 
 # =============================================================================
-# SECTION 2 — systemd persistence (Linux/macOS only)
+# SECTION 2  -  systemd persistence (Linux/macOS only)
 # =============================================================================
 # The backdoor registers pgmon.service with Restart=always so it starts on
-# login and restarts every 5 seconds on crash — no root required.
+# login and restarts every 5 seconds on crash  -  no root required.
 # =============================================================================
 Write-Banner "[2/9] Checking systemd user-service persistence..."
 
@@ -190,11 +192,11 @@ if ($IsLinuxPS -or $IsMacOSPS) {
         Write-Good "systemctl not available (skipping systemd check)"
     }
 } else {
-    Write-Good "Not Linux/macOS — systemd backdoor only activates on Linux (skipping)"
+    Write-Good "Not Linux/macOS  -  systemd backdoor only activates on Linux (skipping)"
 }
 
 # =============================================================================
-# SECTION 3 — Running processes
+# SECTION 3  -  Running processes
 # =============================================================================
 # Active infection indicators:
 #   - python3 running ~/.local/share/pgmon/service.py  (C2 poller)
@@ -220,7 +222,7 @@ Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
         $script:ProcSuspicious = $true
     }
     if ($cmdLine -match "deploy\.js") {
-        Write-Bad "Worm (deploy.js) process is running — npm token exfiltration may be occurring!"
+        Write-Bad "Worm (deploy.js) process is running  -  npm token exfiltration may be occurring!"
         Write-Detail "Process: $cmdLine  (PID $($_.Id))"
         Write-Detail "Immediately:"
         Write-Detail "  1. Stop-Process -Id $($_.Id) -Force"
@@ -248,7 +250,7 @@ if ($IsLinuxPS) {
 if (-not $ProcSuspicious) { Write-Good "No suspicious CanisterWorm processes detected" }
 
 # =============================================================================
-# SECTION 4 — Network connections to C2 infrastructure
+# SECTION 4  -  Network connections to C2 infrastructure
 # =============================================================================
 # The Python backdoor contacts:
 #   https://tdtqy-oyaaa-aaaae-af2dq-cai.raw.icp0.io/
@@ -276,7 +278,7 @@ try {
 if ($IsLinuxPS -or $IsMacOSPS) {
     if (Test-Path "/etc/hosts") {
         if ((Get-Content "/etc/hosts" -Raw) -match $C2Domain) {
-            Write-Good "C2 domain ($C2Domain) is in /etc/hosts — possible defensive sinkhole"
+            Write-Good "C2 domain ($C2Domain) is in /etc/hosts  -  possible defensive sinkhole"
         }
     }
     try {
@@ -292,12 +294,12 @@ if ($IsLinuxPS -or $IsMacOSPS) {
 if (-not $NetFound) { Write-Good "No active connections to known CanisterWorm C2 infrastructure" }
 
 # =============================================================================
-# SECTION 5 — npm credential exposure
+# SECTION 5  -  npm credential exposure
 # =============================================================================
 # CanisterWorm harvests npm tokens from:
-#   1. ~/.npmrc                — user npm config
-#   2. ./.npmrc                — project config
-#   3. /etc/npmrc              — global config (Linux)
+#   1. ~/.npmrc                 -  user npm config
+#   2. ./.npmrc                 -  project config
+#   3. /etc/npmrc               -  global config (Linux)
 #   4. env NPM_TOKEN, NPM_TOKENS, any *NPM*TOKEN*
 #   5. npm config get //registry.npmjs.org/:_authToken
 # Stolen tokens are used by deploy.js to republish malware across all packages.
@@ -324,7 +326,7 @@ foreach ($rcPath in $NpmrcPaths) {
             Write-Detail "  4. Re-authenticate with a new scoped, 2FA-protected token."
             $TokenFound = $true
         } else {
-            Write-Good "$rcPath — no auth token"
+            Write-Good "$rcPath  -  no auth token"
         }
     }
 }
@@ -348,7 +350,7 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
             $preview = if ($cfgToken.Length -gt 8) { $cfgToken.Substring(0,8) + "..." } else { "..." }
             Write-Detail "Value (truncated): $preview"
             Write-Detail "This is exactly how CanisterWorm steals tokens."
-            Write-Detail "Revoke: npm token list  →  npm token revoke <id>"
+            Write-Detail "Revoke: npm token list  ->  npm token revoke <id>"
             $TokenFound = $true
         }
     } catch {}
@@ -357,7 +359,7 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
 if (-not $TokenFound) { Write-Good "No exposed npm tokens detected" }
 
 # =============================================================================
-# SECTION 6 — Dangerous postinstall hooks
+# SECTION 6  -  Dangerous postinstall hooks
 # =============================================================================
 # CanisterWorm activates through a postinstall hook containing:
 #   - base64 decode (hides the embedded Python payload)
@@ -383,7 +385,7 @@ Get-ChildItem -Path $TargetDir -Recurse -Filter "package.json" -ErrorAction Sile
                 Write-Detail "Pattern matches CanisterWorm's installation method."
                 Write-Detail "Remediation: npm install --ignore-scripts  (or remove the dependency)"
             } else {
-                Write-Warn "postinstall hook present in: $($_.FullName) — review manually"
+                Write-Warn "postinstall hook present in: $($_.FullName)  -  review manually"
             }
         }
     }
@@ -405,15 +407,15 @@ if (Test-Path $NodeModulesPath) {
 Write-Good "postinstall hook scan complete"
 
 # =============================================================================
-# SECTION 7 — Known compromised package dependencies
+# SECTION 7  -  Known compromised package dependencies
 # =============================================================================
 # Packages confirmed to have distributed CanisterWorm payloads (Mar 2026):
-#   @emilgroup/*            — full scope (28 packages)
-#   @opengov/*              — 16+ packages
+#   @emilgroup/*             -  full scope (28 packages)
+#   @opengov/*               -  16+ packages
 #   @teale.io/eslint-config
 #   @airtm/uuid-base32
 #   @pypestream/floating-ui-dom
-# The presence of deploy.js in node_modules — with worm-specific patterns —
+# The presence of deploy.js in node_modules  -  with worm-specific patterns  - 
 # is an additional high-confidence indicator even if package names changed.
 # =============================================================================
 Write-Banner "[7/9] Checking for known compromised package dependencies..."
@@ -468,7 +470,7 @@ if (Test-Path $NodeModulesPath) {
 if (-not $PkgFound) { Write-Good "No known compromised package dependencies detected" }
 
 # =============================================================================
-# SECTION 8 — CI/CD and environment exposure
+# SECTION 8  -  CI/CD and environment exposure
 # =============================================================================
 # CanisterWorm targets CI/CD runners where npm tokens are injected as env vars.
 # GitHub Actions is a primary target.  Trivy was compromised by TeamPCP as an
@@ -479,12 +481,12 @@ Write-Banner "[8/9] Checking CI/CD exposure indicators..."
 $CiFound = $false
 
 if ($env:GITHUB_ACTIONS -or $env:GITHUB_TOKEN) {
-    Write-Warn "Running inside GitHub Actions — npm tokens in CI are a primary CanisterWorm target."
+    Write-Warn "Running inside GitHub Actions  -  npm tokens in CI are a primary CanisterWorm target."
     Write-Detail "Use short-lived, scoped tokens. Enable 2FA for npm publish."
     $CiFound = $true
 }
 if ($env:CI -or $env:JENKINS_URL -or $env:CIRCLECI -or $env:TRAVIS -or $env:GITLAB_CI) {
-    Write-Warn "CI environment detected — ensure npm publish tokens are revoked after each job."
+    Write-Warn "CI environment detected  -  ensure npm publish tokens are revoked after each job."
     $CiFound = $true
 }
 if (Get-Command trivy -ErrorAction SilentlyContinue) {
@@ -499,7 +501,7 @@ if (Get-Command trivy -ErrorAction SilentlyContinue) {
 if (-not $CiFound) { Write-Good "No specific CI/CD exposure signals detected" }
 
 # =============================================================================
-# SECTION 9 — npm audit
+# SECTION 9  -  npm audit
 # =============================================================================
 Write-Banner "[9/9] Running npm audit for critical vulnerabilities..."
 
@@ -522,10 +524,10 @@ if (Test-Path $PkgJsonPath) {
         }
         Pop-Location
     } else {
-        Write-Warn "npm not found — skipping npm audit"
+        Write-Warn "npm not found  -  skipping npm audit"
     }
 } else {
-    Write-Good "No package.json in target directory — skipping npm audit"
+    Write-Good "No package.json in target directory  -  skipping npm audit"
 }
 
 # =============================================================================
@@ -537,12 +539,12 @@ Write-Host "========================================================"     -Foreg
 
 if ($IssuesFound) {
     Write-Host "`n[!!!] POTENTIAL COMPROMISE INDICATORS DETECTED!" -ForegroundColor Red
-    Write-Host "`nTARGETED REMEDIATION — actions for issues found above" -ForegroundColor Yellow
+    Write-Host "`nTARGETED REMEDIATION  -  actions for issues found above" -ForegroundColor Yellow
     Write-Host "--------------------------------------------------------"
 
     # Step 1: only when pgmon.service file or active systemd service found
     if ($FoundBackdoorService) {
-        Write-Host "`nSTEP 1 — Stop and remove the persistent backdoor" -ForegroundColor Yellow
+        Write-Host "`nSTEP 1  -  Stop and remove the persistent backdoor" -ForegroundColor Yellow
         Write-Host "  systemctl --user stop pgmon.service"
         Write-Host "  systemctl --user disable pgmon.service"
         Write-Host "  systemctl --user daemon-reload"
@@ -552,7 +554,7 @@ if ($IssuesFound) {
 
     # Step 2: only when payload files or running malicious processes found
     if ($FoundPayloadFiles -or $ProcSuspicious) {
-        Write-Host "`nSTEP 2 — Kill malicious processes and remove payload files" -ForegroundColor Yellow
+        Write-Host "`nSTEP 2  -  Kill malicious processes and remove payload files" -ForegroundColor Yellow
         Write-Host "  # Linux/macOS:"
         Write-Host "  pkill -f '/tmp/pglog'           # kill running payload"
         Write-Host "  pkill -f 'pgmon/service.py'     # kill C2 poller"
@@ -562,12 +564,12 @@ if ($IssuesFound) {
 
     # Steps 3+4: only when tokens are exposed or worm process was running
     if ($TokenFound -or $ProcSuspicious) {
-        Write-Host "`nSTEP 3 — Rotate ALL npm credentials immediately" -ForegroundColor Yellow
+        Write-Host "`nSTEP 3  -  Rotate ALL npm credentials immediately" -ForegroundColor Yellow
         Write-Host "  npm token list                         # list all active tokens"
         Write-Host "  npm token revoke <id>                  # revoke every one"
         Write-Host "  # Create a fresh scoped, 2FA-protected token afterwards."
 
-        Write-Host "`nSTEP 4 — Audit your npm packages for unauthorised publishes" -ForegroundColor Yellow
+        Write-Host "`nSTEP 4  -  Audit your npm packages for unauthorised publishes" -ForegroundColor Yellow
         Write-Host "  npm access list packages <your-username>"
         Write-Host "  # Or visit: https://www.npmjs.com/settings/<username>/packages"
         Write-Host "  # Look for versions published on/after 20 Mar 2026 without your consent."
@@ -576,7 +578,7 @@ if ($IssuesFound) {
 
     # Step 5: only when compromised packages, dangerous postinstall, or critical audit vulns found
     if ($FoundCompromisedPkgs -or $FoundPostinstall -or $FoundNpmAudit) {
-        Write-Host "`nSTEP 5 — Clean-reinstall project dependencies" -ForegroundColor Yellow
+        Write-Host "`nSTEP 5  -  Clean-reinstall project dependencies" -ForegroundColor Yellow
         Write-Host "  Set-Location '$TargetDir'"
         Write-Host "  Remove-Item node_modules -Recurse -Force"
         Write-Host "  Remove-Item package-lock.json -Force -ErrorAction SilentlyContinue"
@@ -589,21 +591,21 @@ if ($IssuesFound) {
 
     # Step 6: only when active C2 connection or backdoor was running
     if ($NetFound -or $FoundBackdoorService) {
-        Write-Host "`nSTEP 6 — Block the C2 infrastructure" -ForegroundColor Yellow
-        Write-Host "  # Linux/macOS — sinkhole in /etc/hosts:"
+        Write-Host "`nSTEP 6  -  Block the C2 infrastructure" -ForegroundColor Yellow
+        Write-Host "  # Linux/macOS  -  sinkhole in /etc/hosts:"
         Write-Host "  '0.0.0.0 tdtqy-oyaaa-aaaae-af2dq-cai.raw.icp0.io' | sudo tee -a /etc/hosts"
         Write-Host "  # Firewall: block outbound TCP 443 to *.icp0.io"
     }
 
     # Step 7: only when Trivy was detected (it was the initial TeamPCP attack vector)
     if ($FoundTrivy) {
-        Write-Host "`nSTEP 7 — Verify your Trivy binary" -ForegroundColor Yellow
+        Write-Host "`nSTEP 7  -  Verify your Trivy binary" -ForegroundColor Yellow
         Write-Host "  # Trivy was compromised by TeamPCP before the CanisterWorm npm campaign."
         Write-Host "  # Verify binary checksums: https://github.com/aquasecurity/trivy/releases"
     }
 
-    # General prevention — always shown when any issue was found
-    Write-Host "`nGENERAL — Prevent future infection" -ForegroundColor Yellow
+    # General prevention  -  always shown when any issue was found
+    Write-Host "`nGENERAL  -  Prevent future infection" -ForegroundColor Yellow
     Write-Host "  npm config set ignore-scripts true    # global default"
     Write-Host "  # Enable npm 2FA: https://docs.npmjs.com/configuring-two-factor-authentication"
     Write-Host "  # Use scoped, automation-only tokens with minimal publish permissions."
